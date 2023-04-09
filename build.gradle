@@ -31,7 +31,7 @@ repositories {
 }
 
 dependencies {
-    implementation group: 'org.apache.tinkerpop', name: 'gremlin-driver', version: '3.5.0'
+    implementation group: 'org.apache.tinkerpop', name: 'gremlin-driver', version: '3.4.10'
     implementation group: 'com.amazonaws', name: 'aws-java-sdk-core', version: '1.11.828'
     implementation group: 'com.amazonaws', name: 'amazon-neptune-sigv4-signer', version: '2.4.0'
     implementation group: 'com.amazonaws', name: 'amazon-neptune-gremlin-java-sigv4', version: '2.4.0'

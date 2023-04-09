@@ -1,5 +1,6 @@
 package org.saswata;
 
+import com.amazon.neptune.gremlin.driver.sigv4.SigV4Properties;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
 import org.apache.tinkerpop.gremlin.driver.SigV4WebSocketChannelizer;
 import org.apache.tinkerpop.gremlin.driver.Tokens;
@@ -18,6 +19,7 @@ import java.util.stream.Stream;
 
 public class Main {
     public static void main(String[] args) throws IOException {
+        System.setProperty(SigV4Properties.SERVICE_REGION, "eu-west-1");
         final String NEPTUNE_READ = args[0]; // reader endpoint
         // path to file containing neptune bulk read source vertices
         final String SOURCE_FILE = args[1];
