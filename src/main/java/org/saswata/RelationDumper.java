@@ -1,94 +1,59 @@
 package org.saswata;
 
-import static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.hasLabel;
-import static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.in;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.structure.T;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.regex.Pattern;
-import java.util.stream.Stream;
-import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import java.util.List;
+
+import static org.apache.tinkerpop.gremlin.process.traversal.P.gt;
+import static org.apache.tinkerpop.gremlin.process.traversal.P.inside;
+import static org.apache.tinkerpop.gremlin.process.traversal.P.lt;
+import static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.in;
+import static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.out;
+import static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.where;
 
 public class RelationDumper {
 
-  private static final String ACC_VERTEX_LABEL = "aws__account";
+    private static final Integer ORDER_WINDOW = 5184000;  // TWO MONTHS EPOCH TIME;
 
-  private static final String SFID = "sfid";
-  private static final String SFID_VERTEX_LABEL = "aws__sfid";
-  private static final String[] SFID_EDGES = {"aws__has_sfid"};
+    private static final String TS = "ts";
+    private static final String[] EDGES = List.of("has_email", "has_ipadd", "has_phone", "has_devid", "has_token", "has_fubid", "has_ubid")
+            .toArray(new String[7]);
+    private static final Integer NUM_SAMPLE_NEIGHBORS = 15;
 
-  private static final String CUSTOMER = "customer";
-  private static final String CUST_VERTEX_LABEL = "cwb__aws__customer";
-  private static final String[] CUST_EDGES = {"aws__has_sfid", "cwb__aws__has_customer"};
+    private final GraphTraversalSource g;
+    private final Path parent;
 
-  private static final String VERTEX_ID_SEPARATOR = "$$";
-  private static final String VERTEX_ID_SEPARATOR_PAT = Pattern.quote(VERTEX_ID_SEPARATOR);
-
-  private final GraphTraversalSource g;
-  private final Path parent;
-
-  public RelationDumper(GraphTraversalSource g, String folder) throws IOException {
-    this.g = g;
-    this.parent = Files.createDirectories(Paths.get(folder));
-  }
-
-  public void process(String line) throws IOException {
-    String[] items = line.split(",");
-    if (items.length != 2) throw new IllegalArgumentException("Malformed input line " + line);
-
-    String type = items[0];
-    String id = items[1];
-
-    Stream<String> accIds = queryChildAccounts(type, id);
-    Stream<String> outLines = accIds.map(it -> genOutLine(type, id, it));
-    persist(type, id, outLines::iterator);
-  }
-
-  private void persist(String type, String id, Iterable<String> outLines) throws IOException {
-    Files.write(parent.resolve(type + "__" + id), outLines, StandardCharsets.UTF_8);
-  }
-
-  private static String genOutLine(String type, String id, String accId) {
-    return type + "," + id + "," + accId;
-  }
-
-  private Stream<String> queryChildAccounts(String type, String id) {
-    return g.V(getVertexId(type, id))
-        .repeat(in(getEdgeFilter(type)).simplePath())
-        .emit(hasLabel(ACC_VERTEX_LABEL))
-        .id()
-        .toStream()
-        .map(RelationDumper::extractAccountId);
-  }
-
-  private static String extractAccountId(Object id) {
-    String[] parts = id.toString().split(VERTEX_ID_SEPARATOR_PAT);
-    if (parts.length != 2) {
-      throw new IllegalArgumentException("Found malformed namespaced vertex: " + id);
-    }
-    return parts[1];
-  }
-
-  private String getVertexId(String type, String id) {
-    if (CUSTOMER.equals(type)) {
-      return CUST_VERTEX_LABEL + VERTEX_ID_SEPARATOR + id;
-    } else if (SFID.equals(type)) {
-      return SFID_VERTEX_LABEL + VERTEX_ID_SEPARATOR + id;
+    public RelationDumper(GraphTraversalSource g, String folder) throws IOException {
+        this.g = g;
+        this.parent = Files.createDirectories(Paths.get(folder));
     }
 
-    throw new IllegalArgumentException("Bad input vertex type : " + type);
-  }
+    public void process(String line) throws IOException {
+        String[] items = line.split(",");
+        if (items.length != 2) throw new IllegalArgumentException("Malformed input line " + line);
 
-  private String[] getEdgeFilter(String type) {
-    if (CUSTOMER.equals(type)) {
-      return CUST_EDGES;
-    } else if (SFID.equals(type)) {
-      return SFID_EDGES;
+        String id = items[0];
+        String ts = items[1];
+
+        queryChildAccounts(id, Integer.parseInt(ts));
     }
 
-    throw new IllegalArgumentException("Bad input vertex type : " + type);
-  }
+    private List<org.apache.tinkerpop.gremlin.process.traversal.Path> queryChildAccounts(String vid, Integer src_timestamp) {
+        return g.with("evaluationTimeout", 5000).V(vid).inV().as("hop_1")
+                .local(out(EDGES).has(TS, inside(src_timestamp - ORDER_WINDOW, src_timestamp))
+                        .limit(NUM_SAMPLE_NEIGHBORS).as("hop_2"))
+                .optional(
+                        in(EDGES).as("hop_3").local(out(EDGES).union(
+                                where(lt("hop_2")).by(TS).has(TS, gt(src_timestamp - ORDER_WINDOW)).limit(
+                                        NUM_SAMPLE_NEIGHBORS).as("hop_4f"),
+                                where(gt("hop_2")).by(TS).has(TS, inside(src_timestamp - ORDER_WINDOW, src_timestamp)).limit(
+                                        NUM_SAMPLE_NEIGHBORS).as("hop_4b")
+                        ))
+                ).path().by(T.id).from("hop_1").dedup().toList();
+    }
 }
